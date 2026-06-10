@@ -66,7 +66,7 @@ constants.dart   → Design tokens (colors, sizes, fonts)
 | 0 | Setup (pubspec, folders, routing, fonts) | ✅ Done |
 | 1 | Database & Models | ✅ Done |
 | 2 | Logic Layer | ✅ Done |
-| 3 | Service Layer | ⏳ Todo |
+| 3 | Service Layer | ✅ Done |
 | 4 | UI Screens | ⏳ Todo |
 | 5 | Integration & Testing | ⏳ Todo |
 | 6 | Polish & Presentasi | ⏳ Todo |
