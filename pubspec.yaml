@@ -36,6 +36,7 @@ dependencies:
   sensors_plus: ^4.0.2
   haptic_feedback: ^0.4.1
   sqflite: ^2.3.2
+  path: ^1.9.0
   path_provider: ^2.1.2
   shared_preferences: ^2.2.2
   fl_chart: ^0.68.0
