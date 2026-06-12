@@ -43,6 +43,7 @@ dependencies:
   provider: ^6.1.2
   image: ^4.1.7
   google_fonts: ^6.1.0
+  screen_brightness: ^1.0.1
 
 dev_dependencies:
   flutter_test:

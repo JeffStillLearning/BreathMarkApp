@@ -3,6 +3,100 @@
 import 'package:flutter/material.dart';
 import '../constants.dart';
 
+// ── 0a. BmPressable ─────────────────────────────────────────────────
+// Membungkus child agar mengecil halus (scale 0.96) saat ditekan, lalu
+// kembali saat dilepas — press feedback ala native. Hormati reduced-motion.
+class BmPressable extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+
+  const BmPressable({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.scale = 0.96,
+  });
+
+  @override
+  State<BmPressable> createState() => _BmPressableState();
+}
+
+class _BmPressableState extends State<BmPressable> {
+  bool _down = false;
+
+  void _set(bool v) {
+    if (widget.onTap == null) return;
+    if (_down != v) setState(() => _down = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final target = (_down && !reduce) ? widget.scale : 1.0;
+    return GestureDetector(
+      onTap: widget.onTap,
+      onTapDown: (_) => _set(true),
+      onTapUp: (_) => _set(false),
+      onTapCancel: () => _set(false),
+      child: AnimatedScale(
+        scale: target,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ── 0b. BmFadeIn ────────────────────────────────────────────────────
+// Entrance: fade + slide-up 16px, dengan [delay] untuk efek stagger.
+// Otomatis nonaktif saat reduced-motion (langsung tampil).
+class BmFadeIn extends StatefulWidget {
+  final Widget child;
+  final Duration delay;
+  final double offsetY;
+
+  const BmFadeIn({
+    super.key,
+    required this.child,
+    this.delay = Duration.zero,
+    this.offsetY = 16,
+  });
+
+  @override
+  State<BmFadeIn> createState() => _BmFadeInState();
+}
+
+class _BmFadeInState extends State<BmFadeIn> {
+  bool _shown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    Future.delayed(widget.delay, () {
+      if (mounted) setState(() => _shown = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduce) return widget.child;
+    return AnimatedSlide(
+      offset: _shown ? Offset.zero : Offset(0, widget.offsetY / 100),
+      duration: const Duration(milliseconds: 360),
+      curve: Curves.easeOutCubic,
+      child: AnimatedOpacity(
+        opacity: _shown ? 1 : 0,
+        duration: const Duration(milliseconds: 360),
+        curve: Curves.easeOut,
+        child: widget.child,
+      ),
+    );
+  }
+}
+
 // ── 1. BmChip ───────────────────────────────────────────────────────
 // Pill label kecil dengan dot warna — dipakai di semua screen hasil
 class BmChip extends StatelessWidget {

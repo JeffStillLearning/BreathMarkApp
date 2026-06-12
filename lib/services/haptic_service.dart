@@ -1,44 +1,67 @@
 // lib/services/haptic_service.dart
-// HapticService menjalankan pola getaran untuk panduan pernapasan 4-7-8
+// HapticService menjalankan pola getaran untuk panduan pernapasan 4-7-8.
+//
+// PENTING: durasi tiap fase dijaga TEPAT (4 / 7 / 8 detik) memakai satu
+// `await Future.delayed` per fase. Pulsa getaran dijadwalkan lewat Timer
+// terpisah supaya latensi channel haptic TIDAK menambah panjang fase
+// (mencegah durasi melenceng & menumpuk antar siklus).
 
 import 'dart:async';
-import 'package:flutter/services.dart'; // HapticFeedback ada di sini
+import 'package:flutter/services.dart';
 
 class HapticService {
   bool _isRunning = false;
+  Timer? _pulseTimer;
 
-  // Jalankan satu siklus pernapasan 4-7-8
-  // onPhaseChange: callback untuk memberi tahu UI sedang di fase apa
-  // onComplete: callback ketika siklus selesai
+  // Jadwalkan [count] pulsa getaran, satu per detik, tanpa memblokir.
+  void _startPulses({required int count, required bool heavy}) {
+    _pulseTimer?.cancel();
+    void pulse() {
+      if (!_isRunning) return;
+      heavy ? HapticFeedback.heavyImpact() : HapticFeedback.lightImpact();
+    }
+
+    int i = 1;
+    pulse(); // pulsa pertama langsung di awal fase
+    _pulseTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!_isRunning || i >= count) {
+        t.cancel();
+        return;
+      }
+      pulse();
+      i++;
+    });
+  }
+
+  Future<void> _wait(int seconds) =>
+      Future.delayed(Duration(seconds: seconds));
+
+  // Jalankan satu siklus pernapasan 4-7-8 dengan durasi fase presisi.
   Future<void> runCycle({
     required Function(String phase) onPhaseChange,
     required Function() onComplete,
   }) async {
     _isRunning = true;
 
-    // --- FASE 1: TARIK NAPAS (4 detik) ---
-    // Getaran panjang terus-menerus = tanda untuk menarik napas
-    onPhaseChange('inhale'); // beritahu UI bahwa kita di fase tarik napas
-    for (int i = 0; i < 4 && _isRunning; i++) {
-      HapticFeedback.heavyImpact(); // getaran sekali
-      await Future.delayed(const Duration(seconds: 1)); // tunggu 1 detik
-    }
+    // FASE 1 — TARIK NAPAS (tepat 4 detik), getaran kuat tiap detik
+    onPhaseChange('inhale');
+    _startPulses(count: 4, heavy: true);
+    await _wait(4);
+    if (!_isRunning) return;
 
-    // --- FASE 2: TAHAN NAPAS (7 detik) ---
-    // Tidak ada getaran = tanda untuk menahan napas
+    // FASE 2 — TAHAN NAPAS (tepat 7 detik), tanpa getaran
+    _pulseTimer?.cancel();
     onPhaseChange('hold');
-    await Future.delayed(const Duration(seconds: 7));
+    await _wait(7);
+    if (!_isRunning) return;
 
-    // --- FASE 3: BUANG NAPAS (8 detik) ---
-    // Getaran berpola setiap 500ms = tanda untuk membuang napas perlahan
+    // FASE 3 — BUANG NAPAS (tepat 8 detik), getaran ringan tiap detik
     onPhaseChange('exhale');
-    for (int i = 0; i < 8 && _isRunning; i++) {
-      HapticFeedback.lightImpact(); // getaran ringan
-      await Future.delayed(const Duration(milliseconds: 500));
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
+    _startPulses(count: 8, heavy: false);
+    await _wait(8);
+    _pulseTimer?.cancel();
 
-    if (_isRunning) onComplete(); // beritahu bahwa siklus selesai
+    if (_isRunning) onComplete();
   }
 
   // Jalankan 3 siklus penuh
@@ -51,7 +74,7 @@ class HapticService {
     for (int siklus = 1; siklus <= 3 && _isRunning; siklus++) {
       await runCycle(
         onPhaseChange: (phase) => onUpdate(siklus, phase),
-        onComplete: () {}, // tidak perlu aksi khusus per siklus
+        onComplete: () {},
       );
     }
 
@@ -61,5 +84,6 @@ class HapticService {
   // Hentikan sesi lebih awal (kalau user tekan tombol batal)
   void stop() {
     _isRunning = false;
+    _pulseTimer?.cancel();
   }
 }

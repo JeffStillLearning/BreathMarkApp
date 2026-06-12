@@ -1,6 +1,11 @@
 // lib/screens/checkin_screen.dart
+// UI dirancang ulang dari nol — selaras dengan Home: gradient berlapis,
+// tipografi editorial, viewfinder berkrafting, gauge arc untuk skor.
+// Logika kamera / fill light / kecerahan / analisis TIDAK diubah.
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:screen_brightness/screen_brightness.dart';
 import '../constants.dart';
 import '../widgets/bm_widgets.dart';
 import '../services/camera_service.dart';
@@ -9,6 +14,13 @@ import '../models/mood_result.dart';
 
 enum CheckinState { preview, analyzing, result }
 
+const _bgGradient = LinearGradient(
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+  colors: [kBgMain, Color(0xFFEFF3EA), Color(0xFFE7F0E5)],
+  stops: [0.0, 0.6, 1.0],
+);
+
 class CheckinScreen extends StatefulWidget {
   const CheckinScreen({super.key});
 
@@ -16,7 +28,8 @@ class CheckinScreen extends StatefulWidget {
   State<CheckinScreen> createState() => _CheckinScreenState();
 }
 
-class _CheckinScreenState extends State<CheckinScreen> {
+class _CheckinScreenState extends State<CheckinScreen>
+    with SingleTickerProviderStateMixin {
   final _cameraService = CameraService();
   final _analyzer = MoodAnalyzer();
 
@@ -24,39 +37,69 @@ class _CheckinScreenState extends State<CheckinScreen> {
   MoodResult? _result;
   String? _error;
 
+  // Denyut untuk cincin "menganalisis"
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1600),
+  )..repeat();
+
   @override
   void initState() {
     super.initState();
     _initCamera();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _boostBrightness());
   }
 
   @override
   void dispose() {
-    _cameraService.dispose(); // PENTING: matikan kamera saat screen ditutup
+    _pulse.dispose();
+    _restoreBrightness();
+    _cameraService.dispose();
     super.dispose();
+  }
+
+  Future<void> _boostBrightness() async {
+    try {
+      await ScreenBrightness().setScreenBrightness(1.0);
+    } catch (_) {}
+  }
+
+  Future<void> _restoreBrightness() async {
+    try {
+      await ScreenBrightness().resetScreenBrightness();
+    } catch (_) {}
   }
 
   Future<void> _initCamera() async {
     try {
       await _cameraService.init();
     } catch (e) {
-      if (mounted) setState(() => _error = 'Kamera tidak dapat diakses. Periksa izin kamera.');
+      if (mounted) {
+        setState(() =>
+            _error = 'Kamera tidak dapat diakses. Periksa izin kamera.');
+      }
       return;
     }
-    if (mounted) setState(() {}); // refresh UI setelah kamera siap
+    await _boostBrightness();
+    if (mounted) setState(() {});
   }
 
-  // Ambil foto → analisis → tampilkan hasil
+  // Ambil foto → analisis → hasil. Senter layar dimatikan tepat setelah jepret.
   Future<void> _capture() async {
     setState(() => _state = CheckinState.analyzing);
 
     final photo = await _cameraService.takePicture();
+    await _restoreBrightness();
+
     if (photo == null) {
+      await _boostBrightness();
       setState(() => _state = CheckinState.preview);
       return;
     }
 
     final result = await _analyzer.analyze(photo);
+    // Tahan di layar "menganalisis" minimal 5 detik agar prosesnya terlihat
+    await Future.delayed(const Duration(seconds: 5));
     if (!mounted) return;
     setState(() {
       _result = result;
@@ -66,6 +109,18 @@ class _CheckinScreenState extends State<CheckinScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 320),
+      switchInCurve: Curves.easeOut,
+      switchOutCurve: Curves.easeIn,
+      child: KeyedSubtree(
+        key: ValueKey(_error != null ? 'error' : _state),
+        child: _buildCurrent(),
+      ),
+    );
+  }
+
+  Widget _buildCurrent() {
     if (_error != null) return _buildError();
     switch (_state) {
       case CheckinState.preview:
@@ -77,342 +132,36 @@ class _CheckinScreenState extends State<CheckinScreen> {
     }
   }
 
-  // ── Error state ───────────────────────────────────────────────────
-  Widget _buildError() {
-    return Scaffold(
-      backgroundColor: kBgMain,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(kPadH),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.no_photography_outlined,
-                  color: kInkLight, size: 56),
-              const SizedBox(height: 16),
-              Text(_error!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 15, color: kInkMed)),
-              const SizedBox(height: 24),
-              BmOutlineButton(
-                label: 'Kembali',
-                onTap: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ── State 1: Tampilan kamera ──────────────────────────────────────
-  Widget _buildPreview() {
-    if (_cameraService.controller == null || !_cameraService.isInitialized) {
-      return const Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: kGreenLight)),
-      );
-    }
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          CameraPreview(_cameraService.controller!),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 160,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xCC000000), Colors.transparent],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 60,
-            left: 24,
-            right: 24,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _glassButton(
-                  child:
-                      const Icon(Icons.arrow_back, color: Colors.white, size: 18),
-                  onTap: () => Navigator.pop(context),
-                ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.14),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: kGreenLight,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      const Text(
-                        'Sensor siap',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 40),
-              ],
-            ),
-          ),
-          Center(
-            child: Container(
-              width: 220,
-              height: 280,
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.5),
-                  width: 1.5,
-                ),
-                borderRadius: BorderRadius.circular(110),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: 60,
-            left: 24,
-            right: 24,
-            child: Column(
-              children: [
-                const Text(
-                  'Posisikan wajah di tengah frame.\nPastikan cahaya cukup.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    height: 1.5,
-                    shadows: [Shadow(blurRadius: 4, color: Colors.black45)],
-                  ),
-                ),
-                const SizedBox(height: 22),
-                GestureDetector(
-                  onTap: _capture,
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: kGreenLight, width: 3),
-                    ),
-                    child: const Icon(Icons.camera_alt,
-                        color: kGreenMed, size: 32),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── State 2: Sedang menganalisis ──────────────────────────────────
-  Widget _buildAnalyzing() {
-    return const Scaffold(
-      backgroundColor: kBgMain,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(color: kGreenMed, strokeWidth: 3),
-            SizedBox(height: 24),
-            Text(
-              'Menganalisis ekspresi wajah...',
-              style: TextStyle(
-                fontFamily: 'PlusJakartaSans',
-                fontSize: 16,
-                color: kInkMed,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ── State 3: Hasil mood ───────────────────────────────────────────
-  Widget _buildResult() {
-    final r = _result!;
-    final color = stressColor(
-      r.score >= 50
-          ? 'low'
-          : r.score >= 30
-              ? 'moderate'
-              : 'high',
-    );
-
-    return Scaffold(
-      backgroundColor: kBgMain,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(kPadH, 16, kPadH, kPadV),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildResultAppBar(),
-              const SizedBox(height: 16),
-              const BmSectionHeader('HASIL MOOD CHECK-IN'),
-              // Kartu skor + radial badge (overlap kanan atas, dari wireframe)
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  BmScoreCard(
-                    label: 'Mood Score',
-                    score: r.score,
-                    unit: '/100',
-                    statusLabel: r.label.toUpperCase(),
-                    statusColor: color,
-                  ),
-                  Positioned(
-                    right: 20,
-                    top: 20,
-                    child: _radialBadge(r.score, color),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _buildBreakdownCard(r),
-              const Spacer(),
-              BmPrimaryButton(
-                label: 'Lanjut → Ukur Stres',
-                icon: const Icon(Icons.arrow_forward,
-                    color: Colors.white, size: 18),
-                onTap: () => Navigator.pushNamed(
-                  context,
-                  '/tremor',
-                  arguments: r, // kirim MoodResult ke screen berikutnya
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // Kartu breakdown 3 metrik zona wajah
-  Widget _buildBreakdownCard(MoodResult r) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: kBgCard,
-        borderRadius: BorderRadius.circular(kRadius),
-        border: Border.all(color: kHairline),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Analisis per zona',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: kInkDark,
-            ),
-          ),
-          const SizedBox(height: 14),
-          _breakdownRow('Kecerahan Wajah', r.brightness),
-          const SizedBox(height: 10),
-          _breakdownRow('Keterbukaan Mata', r.eyeOpenness),
-          const SizedBox(height: 10),
-          _breakdownRow('Ekspresi Mulut', r.mouthCurve),
-        ],
-      ),
-    );
-  }
-
-  Widget _breakdownRow(String label, double value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 13, color: kInkMed)),
-            Text(
-              '${(value * 100).toStringAsFixed(0)}%',
-              style: const TextStyle(
-                fontFamily: 'DMmono',
-                fontSize: 13,
-                color: kInkDark,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: value.clamp(0.0, 1.0),
-            backgroundColor: kGreenPale,
-            color: kGreenLight,
-            minHeight: 6,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildResultAppBar() {
+  // ── Header dipakai ulang: back + judul + step ─────────────────────
+  Widget _topBar({
+    required String step,
+    required VoidCallback onBack,
+    bool onWhite = true,
+  }) {
     return Row(
       children: [
-        GestureDetector(
-          onTap: () => setState(() => _state = CheckinState.preview),
-          child: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: kInkDark.withOpacity(0.04),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.arrow_back, size: 18, color: kInkDark),
-          ),
+        _circleBtn(
+          icon: Icons.arrow_back_rounded,
+          onTap: onBack,
+          onWhite: onWhite,
         ),
         const Spacer(),
-        const Text(
-          'Check-in Mood',
+        Text(
+          'CHECK-IN',
           style: TextStyle(
-            fontFamily: 'PlusJakartaSans',
-            fontSize: 17,
-            fontWeight: FontWeight.w700,
-            color: kInkDark,
+            fontFamily: 'DMmono',
+            fontSize: 11,
+            letterSpacing: 2.0,
+            color: onWhite ? kInkLight : kInkLight,
           ),
         ),
         const Spacer(),
-        // Step indicator 1 / 3 (dari wireframe)
-        const SizedBox(
-          width: 40,
+        SizedBox(
+          width: 44,
           child: Text(
-            '1 / 3',
+            step,
             textAlign: TextAlign.right,
-            style: TextStyle(
+            style: const TextStyle(
               fontFamily: 'DMmono',
               fontSize: 11,
               color: kInkLight,
@@ -423,51 +172,558 @@ class _CheckinScreenState extends State<CheckinScreen> {
     );
   }
 
-  // Radial badge persentase skor — lingkaran progress kecil
-  Widget _radialBadge(double score, Color color) {
+  Widget _circleBtn({
+    required IconData icon,
+    required VoidCallback onTap,
+    bool onWhite = true,
+  }) {
+    return BmPressable(
+      onTap: onTap,
+      child: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: onWhite ? Colors.white.withOpacity(0.7) : Colors.white,
+          shape: BoxShape.circle,
+          border: Border.all(color: kHairline),
+        ),
+        child: Icon(icon, color: kInkDark, size: 20),
+      ),
+    );
+  }
+
+  // ── Error state ───────────────────────────────────────────────────
+  Widget _buildError() {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(gradient: _bgGradient),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(kPadH),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 88,
+                  height: 88,
+                  decoration: const BoxDecoration(
+                      color: kGreenPale, shape: BoxShape.circle),
+                  child: const Icon(Icons.no_photography_outlined,
+                      color: kGreenMed, size: 40),
+                ),
+                const SizedBox(height: 20),
+                Text(_error!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        fontSize: 15, color: kInkMed, height: 1.5)),
+                const SizedBox(height: 24),
+                BmOutlineButton(
+                  label: 'Kembali',
+                  onTap: () async {
+                    await _restoreBrightness();
+                    if (mounted) Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── State 1: Preview (putih = senter layar) ───────────────────────
+  Widget _buildPreview() {
+    final ready = _cameraService.controller != null &&
+        _cameraService.isInitialized;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(kPadH, 8, kPadH, 20),
+          child: Column(
+            children: [
+              _topBar(
+                step: '1 / 3',
+                onBack: () async {
+                  await _restoreBrightness();
+                  if (mounted) Navigator.pop(context);
+                },
+              ),
+              const Spacer(),
+              const Text(
+                'Posisikan wajah\ndi dalam bingkai',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'PlusJakartaSans',
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: kInkDark,
+                  height: 1.15,
+                  letterSpacing: -0.6,
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Viewfinder: jendela kamera + corner ticks
+              _viewfinder(ready),
+              const SizedBox(height: 20),
+              
+              const Spacer(),
+              // Shutter orb
+              _shutter(onTap: ready ? _capture : null),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _viewfinder(bool ready) {
+    const w = 248.0, h = 320.0;
     return SizedBox(
-      width: 64,
-      height: 64,
+      width: w,
+      height: h,
       child: Stack(
         alignment: Alignment.center,
         children: [
-          SizedBox(
-            width: 64,
-            height: 64,
-            child: CircularProgressIndicator(
-              value: (score / 100).clamp(0.0, 1.0),
-              strokeWidth: 4,
-              backgroundColor: Colors.white.withOpacity(0.6),
-              color: color,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(32),
+            child: SizedBox(
+              width: w,
+              height: h,
+              child: ready
+                  ? FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: _cameraService
+                                .controller!.value.previewSize?.height ??
+                            w,
+                        height: _cameraService
+                                .controller!.value.previewSize?.width ??
+                            h,
+                        child: CameraPreview(_cameraService.controller!),
+                      ),
+                    )
+                  : Container(
+                      color: kGreenPale,
+                      child: const Center(
+                        child: CircularProgressIndicator(color: kGreenMed),
+                      ),
+                    ),
             ),
           ),
-          Text(
-            '${score.toStringAsFixed(0)}%',
-            style: const TextStyle(
-              fontFamily: 'DMmono',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: kGreenDark,
+          // Oval panduan wajah
+          IgnorePointer(
+            child: Container(
+              width: 170,
+              height: 230,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(120),
+                border: Border.all(
+                    color: Colors.white.withOpacity(0.85), width: 2),
+              ),
             ),
+          ),
+          // Corner ticks (viewfinder)
+          const Positioned.fill(
+            child: IgnorePointer(child: CustomPaint(painter: _CornerTicks())),
           ),
         ],
       ),
     );
   }
 
-  // Tombol kaca untuk layar kamera gelap
-  Widget _glassButton({required Widget child, required VoidCallback onTap}) {
-    return GestureDetector(
+  Widget _shutter({VoidCallback? onTap}) {
+    return BmPressable(
+      scale: 0.92,
       onTap: onTap,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.18),
-          shape: BoxShape.circle,
+      child: SizedBox(
+        width: 92,
+        height: 92,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // cincin luar
+            Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: kGreenLight.withOpacity(0.5), width: 2),
+              ),
+            ),
+            Container(
+              width: 74,
+              height: 74,
+              decoration: BoxDecoration(
+                color: kGreenMed,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: kGreenMed.withOpacity(0.4),
+                    blurRadius: 22,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: const Icon(Icons.camera_alt_rounded,
+                  color: Colors.white, size: 30),
+            ),
+          ],
         ),
-        child: Center(child: child),
       ),
     );
   }
+
+  // ── State 2: Analyzing (cincin napas berdenyut) ───────────────────
+  Widget _buildAnalyzing() {
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(gradient: _bgGradient),
+        child: SafeArea(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedBuilder(
+                animation: _pulse,
+                builder: (context, child) => CustomPaint(
+                  painter: _PulseRings(_pulse.value),
+                  child: child,
+                ),
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: RadialGradient(
+                      center: Alignment(-0.3, -0.3),
+                      colors: [Colors.white, kGreenLight, kGreenMed],
+                      stops: [0.0, 0.6, 1.0],
+                    ),
+                  ),
+                  child: const Icon(Icons.face_retouching_natural,
+                      color: Colors.white, size: 44),
+                ),
+              ),
+              const SizedBox(height: 36),
+              const Text(
+                'Menganalisis ekspresi',
+                style: TextStyle(
+                  fontFamily: 'PlusJakartaSans',
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  color: kInkDark,
+                  letterSpacing: -0.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text('Membaca 3 zona wajah…',
+                  style: TextStyle(fontSize: 13, color: kInkMed)),
+              const SizedBox(height: 22),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  BmChip(label: 'Kecerahan'),
+                  SizedBox(width: 8),
+                  BmChip(label: 'Mata'),
+                  SizedBox(width: 8),
+                  BmChip(label: 'Mulut'),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── State 3: Result (gauge arc) ───────────────────────────────────
+  Widget _buildResult() {
+    final r = _result!;
+    final level = r.score >= 50
+        ? 'low'
+        : r.score >= 30
+            ? 'moderate'
+            : 'high';
+    final color = stressColor(level);
+
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(gradient: _bgGradient),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(kPadH, 8, kPadH, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _topBar(
+                  step: '1 / 3',
+                  onBack: () {
+                    _boostBrightness();
+                    setState(() => _state = CheckinState.preview);
+                  },
+                ),
+                const SizedBox(height: 8),
+                BmFadeIn(
+                  delay: const Duration(milliseconds: 40),
+                  child: const Text(
+                    'Hasil mood',
+                    style: TextStyle(
+                      fontFamily: 'PlusJakartaSans',
+                      fontSize: 30,
+                      fontWeight: FontWeight.w700,
+                      color: kInkDark,
+                      letterSpacing: -0.8,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                // Gauge arc hero
+                BmFadeIn(
+                  delay: const Duration(milliseconds: 100),
+                  child: Center(child: _scoreGauge(r, color)),
+                ),
+                const SizedBox(height: 18),
+                BmFadeIn(
+                  delay: const Duration(milliseconds: 160),
+                  child: Center(
+                    child: BmChip(
+                      label: '${moodEmoji(r.label)}  ${r.label.toUpperCase()}',
+                      color: color,
+                      bg: color.withOpacity(0.14),
+                      showDot: false,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                // Breakdown 3 zona
+                BmFadeIn(
+                  delay: const Duration(milliseconds: 220),
+                  child: _breakdownCard(r),
+                ),
+                const SizedBox(height: 18),
+                BmPrimaryButton(
+                  label: 'Mulai Ukur Stres',
+                  icon: const Icon(Icons.sensors_rounded,
+                      color: Colors.white, size: 20),
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/tremor', arguments: r),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _scoreGauge(MoodResult r, Color color) {
+    return SizedBox(
+      width: 220,
+      height: 220,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: (r.score / 100).clamp(0.0, 1.0)),
+            duration: const Duration(milliseconds: 900),
+            curve: Curves.easeOutCubic,
+            builder: (context, v, _) => CustomPaint(
+              size: const Size(220, 220),
+              painter: _GaugePainter(v, color),
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                r.score.toStringAsFixed(0),
+                style: const TextStyle(
+                  fontFamily: 'DMmono',
+                  fontSize: 64,
+                  fontWeight: FontWeight.w500,
+                  color: kGreenDark,
+                  height: 1,
+                  letterSpacing: -2,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Text('MOOD SCORE / 100',
+                  style: TextStyle(
+                      fontFamily: 'DMmono',
+                      fontSize: 10,
+                      color: kInkLight,
+                      letterSpacing: 1.5)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _breakdownCard(MoodResult r) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.7),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: kHairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('ANALISIS PER ZONA',
+              style: TextStyle(
+                  fontFamily: 'DMmono',
+                  fontSize: 9,
+                  color: kInkLight,
+                  letterSpacing: 1.4)),
+          const SizedBox(height: 14),
+          _zoneRow('Kecerahan wajah', r.brightness),
+          const SizedBox(height: 12),
+          _zoneRow('Keterbukaan mata', r.eyeOpenness),
+          const SizedBox(height: 12),
+          _zoneRow('Ekspresi mulut', r.mouthCurve),
+        ],
+      ),
+    );
+  }
+
+  Widget _zoneRow(String label, double value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 13, color: kInkMed)),
+            Text('${(value * 100).toStringAsFixed(0)}%',
+                style: const TextStyle(
+                    fontFamily: 'DMmono', fontSize: 13, color: kInkDark)),
+          ],
+        ),
+        const SizedBox(height: 7),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: value.clamp(0.0, 1.0)),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeOutCubic,
+            builder: (context, v, _) => LinearProgressIndicator(
+              value: v,
+              backgroundColor: kGreenPale,
+              color: kGreenMed,
+              minHeight: 7,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Painters ────────────────────────────────────────────────────────
+
+// Sudut viewfinder (4 siku-siku)
+class _CornerTicks extends CustomPainter {
+  const _CornerTicks();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    const len = 22.0, m = 14.0;
+    final w = size.width, h = size.height;
+    // kiri atas
+    canvas.drawLine(Offset(m, m + len), Offset(m, m), p);
+    canvas.drawLine(Offset(m, m), Offset(m + len, m), p);
+    // kanan atas
+    canvas.drawLine(Offset(w - m - len, m), Offset(w - m, m), p);
+    canvas.drawLine(Offset(w - m, m), Offset(w - m, m + len), p);
+    // kiri bawah
+    canvas.drawLine(Offset(m, h - m - len), Offset(m, h - m), p);
+    canvas.drawLine(Offset(m, h - m), Offset(m + len, h - m), p);
+    // kanan bawah
+    canvas.drawLine(Offset(w - m - len, h - m), Offset(w - m, h - m), p);
+    canvas.drawLine(Offset(w - m, h - m), Offset(w - m, h - m - len), p);
+  }
+
+  @override
+  bool shouldRepaint(_CornerTicks oldDelegate) => false;
+}
+
+// Cincin menyebar saat menganalisis
+class _PulseRings extends CustomPainter {
+  final double t; // 0..1
+  _PulseRings(this.t);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final base = size.width / 2;
+    for (int i = 0; i < 3; i++) {
+      final phase = (t + i / 3) % 1.0;
+      final radius = base + phase * 46;
+      final opacity = (1 - phase) * 0.35;
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = kGreenMed.withOpacity(opacity)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PulseRings oldDelegate) => oldDelegate.t != t;
+}
+
+// Gauge arc 270° untuk skor mood
+class _GaugePainter extends CustomPainter {
+  final double value; // 0..1
+  final Color color;
+  _GaugePainter(this.value, this.color);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 10;
+    const start = math.pi * 0.75;
+    const sweep = math.pi * 1.5;
+
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      start,
+      sweep,
+      false,
+      Paint()
+        ..color = kGreenPale
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 12
+        ..strokeCap = StrokeCap.round,
+    );
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      start,
+      sweep * value,
+      false,
+      Paint()
+        ..shader = SweepGradient(
+          startAngle: start,
+          endAngle: start + sweep,
+          colors: [kGreenLight, kGreenMed, kGreenDark],
+        ).createShader(Rect.fromCircle(center: center, radius: radius))
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 12
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_GaugePainter oldDelegate) =>
+      oldDelegate.value != value || oldDelegate.color != color;
 }
