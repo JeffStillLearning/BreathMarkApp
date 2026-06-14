@@ -1,3 +1,6 @@
+# Dokumentasi lokal (tidak ikut repo)
+docs/
+
 # Android signing — RAHASIA, jangan pernah di-commit
 *.jks
 *.keystore
