@@ -1,3 +1,9 @@
+# Android signing — RAHASIA, jangan pernah di-commit
+*.jks
+*.keystore
+key.properties
+android/key.properties
+
 # Miscellaneous
 *.class
 *.log
