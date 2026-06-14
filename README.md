@@ -1,9 +1,7 @@
-# BreathMark — Stres & Fokus Tracker
+# BreathMark: Stres & Fokus Tracker
 
 Aplikasi deteksi stres dan fokus menggunakan sensor smartphone untuk membantu mahasiswa dan pekerja muda memantau kondisi mental mereka. 
 
-**Platform:** Android (Flutter 3.x)  
-**Target:** Selesai dalam 5-6 hari (6 sprint)
 
 ---
 
@@ -46,8 +44,6 @@ database/        → Local storage (SQLite via sqflite)
 constants.dart   → Design tokens (colors, sizes, fonts)
 ```
 
-**For details:** See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-
 ---
 
 ## 📱 Features
@@ -68,17 +64,6 @@ constants.dart   → Design tokens (colors, sizes, fonts)
 | 2 | Logic Layer | ✅ Done |
 | 3 | Service Layer | ✅ Done |
 | 4 | UI Screens | ✅ Done |
-| 5 | Integration & Testing | ⏳ Todo |
-| 6 | Polish & Presentasi | ⏳ Todo |
-
----
-
-## 📚 Documentation
-
-- **[docs/SETUP.md](docs/SETUP.md)** — Font download, troubleshooting, emulator setup
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — Layer design, WHY decisions, data flow
-- **[PRD_BREATHMARK.md](PRD_BREATHMARK.md)** — Complete product spec & sprint details
-- **[UI_IMPLEMENTATION.md](UI_IMPLEMENTATION.md)** — UI design tokens, components, screens
 
 ---
 
@@ -112,14 +97,3 @@ lib/
 ```
 
 ---
-
-## 📝 Notes
-
-- Fonts must be placed in `fonts/` folder (see SETUP.md)
-- Android permissions configured in `AndroidManifest.xml`
-- Database auto-creates on first run
-- Provider package for state management
-
----
-
-**Need help?** Check [docs/SETUP.md](docs/SETUP.md) for troubleshooting.
